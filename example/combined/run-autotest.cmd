@@ -1,0 +1,1 @@
+..\lib\phantomjs\phantomjs.exe ../../src/bambino.coffee src/www --app-filter main.js --test-filter *.specs.js --require-path ../lib/require.js --jasmine-path ../lib/jasmine/jasmine.js --script-path ../lib/jasmine/jasmine-jquery.js --module-path src/www/scripts/underscore/underscore-config.js --output html --output-path ~results.html --auto-test --auto-test-frequency 2
