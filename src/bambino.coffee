@@ -6,6 +6,8 @@ window.error = (message) ->
 #    console.log message
 #    phantom.exit 1
 
+Array.prototype.contains = (item) -> @.indexOf(item) > -1
+
 Date.prototype.elapsed = -> (new Date() - @) / 1000;
 
 String.prototype.left = (length) -> @substr 0, length
@@ -35,6 +37,9 @@ class Path
         directory = @getDirectory(path)
         filename = @getFilenameWithoutExt(@getFilename(path))
         if directory then @join directory, filename else filename
+    @getExtension: (path) ->
+        filename = @getFilename path
+        if filename.indexOf('.') > 0 then filename.substr(filename.lastIndexOf('.')) else ''
     @getRootPath: (paths...) ->
         if paths.length == 0 then return ''
         if paths.length == 1 then return paths[0]
@@ -74,41 +79,60 @@ class Path
 class Config
     constructor: (args) ->
         fs = require('fs')
+        @run = false
+        @autorun = false
+        @autorunFrequency = 2000
+        @createRunner = false
         @path = fs.workingDirectory
         @appFilter = 'main.js'
-        @testsPath = null
         @testFilter = '*.spec.js'
         @requirePath = 'require.js'
         @jasminePath = 'jasmine.js'
-        @outputPath = 'report'
-        @output = 'xml'
+        @outputPath = fs.workingDirectory
+        @outputFilename = 'results'
+        @output = []
         @scriptPaths = []
         @modulePaths = []
-        @autotest = false
-        @autotestFrequency = 2000
         name = null
         for arg in args
             if arg.startsWith '--' 
                 switch arg
-                    when '--auto-test' then @autotest = true
-                    else name = arg
+                    when '--auto-run' then @autorun = true
+                    when '--run' then @run = true
+                    when '--create-runner' then @createRunner = true
+                    else name = arg.substr(2)
             else
                 if name == null then @path = arg
                 else
                     switch name
-                        when '--app-filter' then @appFilter = arg
-                        when '--tests-path' then @testsPath = arg
-                        when '--test-filter' then @testFilter = arg
-                        when '--require-path' then @requirePath = arg
-                        when '--jasmine-path' then @jasminePath = arg
-                        when '--output-path' then @outputPath = arg
-                        when '--output' then @output = arg
-                        when '--script-path' then @scriptPaths.push arg
-                        when '--module-path' then @modulePaths.push arg
-                        when '--auto-test-frequency' then @autotestFrequency = parseInt(arg) * 1000
+                        when 'app-filter' then @appFilter = arg
+                        when 'tests-path' then @testsPath = arg
+                        when 'test-filter' then @testFilter = arg
+                        when 'require-path' then @requirePath = arg
+                        when 'jasmine-path' then @jasminePath = arg
+                        when 'output-path' then @outputPath = arg
+                        when 'xml-output-path' then @xmlOutputPath = arg
+                        when 'html-output-path' then @htmlOutputPath = arg
+                        when 'output-filename' then @outputFilename = arg
+                        when 'xml-output-filename' then @xmlOutputFilename = arg
+                        when 'html-output-filename' then @htmlOutputFilename = arg
+                        when 'output' then @output.push arg
+                        when 'script-path' then @scriptPaths.push arg
+                        when 'module-path' then @modulePaths.push arg
+                        when 'auto-run-frequency' then @autorunFrequency = parseInt(arg) * 1000
                         else continue
                 name = null
         @testsPath = @testsPath ? @path
+        
+    printSummary: ->
+        printOption = (text, value) -> console.log "    #{text}: #{value}"
+        for option, value of @ when typeof value != 'function'
+            printOption option, value
+        console.log ''
+        console.log '----------------------------------------------------------------------------'
+        
+    @printOptions: ->
+        console.log 'Options'
 
 class Page
     constructor: ->
@@ -180,7 +204,10 @@ class JasmineTestRunner extends Page
                 @onComplete(@, jasmine.summary)
                 return false
         return true
-   
+    
+    save: (baseUrl, paths, modules) -> 
+        
+        
     run: (baseUrl, paths, modules) -> 
         @load @scripts, =>
             @page.evaluate ->
@@ -232,27 +259,32 @@ class JasmineTestRunner extends Page
                     jasmineEnv.updateInterval = 1000
                     jasmineEnv.addReporter new JasmineReporter()
                     jasmineEnv.execute()
+            require('fs').write 'd:/temp/runner.html', @page.evaluate(-> document.documentElement.innerHTML), 'w'
 
 class TestRunner
-    constructor: (basePath, @appFilter, testsPath, @testFilter, @requirePath, @jasminePath, @scriptPaths, @modulePaths, @reportWriter, @onComplete) ->
+    constructor: (basePath, @appFilter, testsPath, @testFilter, @requirePath, @jasminePath, @scriptPaths, @modulePaths, @resultWriters) ->
         @basePath = Path.getAbsolutePath basePath
         @testsPath = if !testsPath then @basePath else Path.getAbsolutePath testsPath
-        
-    run: ->
+    
+    save: ->
+        console.log 'Saving...'
+        console.log '----------------------------------------------------------------------------'
+    
+    run: (onComplete) ->
         summary = 
             start: new Date()
             suites: []
         console.log 'Starting test runner...'
         console.log "Searching for #{@appFilter} under #{@basePath}..."
-        @appQueue = Path.search(@basePath, @appFilter).sort (a, b) -> b.length - a.length
+        appQueue = Path.search(@basePath, @appFilter).sort (a, b) -> b.length - a.length
         
-        if @appQueue.length == 0 then @complete(summary)
-        else @runNext(summary)
+        if appQueue.length == 0 then @runComplete(summary, onComplete)
+        else @runNext(appQueue, summary, onComplete)
         
-    runNext: (summary) ->
-        if @appQueue.length == 0 then return @complete(summary)
+    runNext: (appQueue, summary, onComplete) ->
+        if appQueue.length == 0 then return @runComplete(summary, onComplete)
         
-        appMain = @appQueue.pop()
+        appMain = appQueue.pop()
         appPath = Path.getDirectory(appMain)
         relativeAppPath = Path.getRelativePath(appPath)
         
@@ -267,12 +299,12 @@ class TestRunner
         console.log "Looking for tests under #{appTestsPath}"
         
         appTestPaths = Path.search(appTestsPath, @testFilter).map((x) -> getRelativeTestPath(x))
-        appTestPaths = Path.excludeDirectories(appTestPaths, @appQueue.map((x) => getRelativeTestPath(getAbsoluteTestPath(Path.getDirectory(x)))))
+        appTestPaths = Path.excludeDirectories(appTestPaths, appQueue.map((x) => getRelativeTestPath(getAbsoluteTestPath(Path.getDirectory(x)))))
         modulePaths = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(appPath, Path.getAbsolutePath(x))))
         
         if appTestPaths.length == 0
             console.log "No tests found."
-            return @runNext(summary)
+            return @runNext(appQueue, summary, onComplete)
         
         console.log("Found test suite #{suite}") for suite in appTestPaths
         
@@ -285,12 +317,12 @@ class TestRunner
             suites.forEach((x) => x.path = suitePath)
             summary.suites = summary.suites.concat(suites)
             runner.close()
-            @runNext(summary)
+            @runNext(appQueue, summary, onComplete)
             
         runner = new JasmineTestRunner([@requirePath, @jasminePath].concat(@scriptPaths), onNext)
         runner.run(relativeAppPath, requirePaths, appTestPaths.concat(modulePaths))
 
-    complete: (summary) ->
+    runComplete: (summary, onComplete) ->
         console.log '----------------------------------------------------------------------------'
         summary.end = new Date()
         summary.duration = summary.start.elapsed()
@@ -303,22 +335,25 @@ class TestRunner
             summary.failed = (suite.failed for suite in summary.suites).reduce (t, s) -> t + s
             console.log "Test runner completed #{if summary.failed == 0 then 'successfully' else 'with failures'} yo."
         console.log '----------------------------------------------------------------------------'
-        @reportWriter.writeSummary summary
-        @onComplete summary
+        @resultWriters.forEach (x) => x.writeSummary summary
+        onComplete summary
 
-class Writer
-    constructor: (path) -> 
+class ResultWriter
+    constructor: (path, filename) -> 
         @path = Path.getAbsolutePath(path)
+        @filename = filename
         @data = ''
     write: (data) -> @data += data
     writeln: (data) -> @write data + "\r"
-    save: -> 
+    save: (path, filename) -> 
         data = @data
         @data = ''
-        require('fs').write @path, data, 'w'
+        require('fs').write Path.join(path ? @path, filename ? @filename), data, 'w'
         
-class XmlWriter extends Writer
-    constructor: (path) -> super(path)
+class XmlWriter extends ResultWriter
+    constructor: (path, filename) -> 
+        if !Path.getExtension(filename) then filename += '.xml'
+        super(path, filename)
     writeSummary: (summary) ->
         @write """<testsuites tests="#{summary.specs}" failures="#{summary.failed}" disabled="0" """
         @writeln """errors="0" time="#{summary.duration}" timestamp="#{summary.end.toISOString()}">"""
@@ -341,8 +376,10 @@ class XmlWriter extends Writer
         @writeln '</testsuites>'
         @save()
 
-class HtmlWriter extends Writer
-    constructor: (path, @autoReload, @autoReloadInterval) -> super(path)
+class HtmlWriter extends ResultWriter
+    constructor: (path, filename, @autoReload, @autoReloadInterval) -> 
+        if !Path.getExtension(filename) then filename += '.html'
+        super(path, filename)
     writeSummary: (summary) ->
         @writeln """
             <html><head><title>Jasmine Spec Runner</title>
@@ -409,19 +446,33 @@ class HtmlWriter extends Writer
 
         @writeln "</div></body></html>"
         @save()
-             
+
+console.log 'Bambino Test Runner'
+console.log ''
+
 config = new Config(phantom.args)
 
-reportWriter = 
-    switch config.output
-        when 'xml' then new XmlWriter(config.outputPath)
-        when 'html' then new HtmlWriter(config.outputPath, config.autotest, config.autotestFrequency)
-run = (onComplete) ->
-    runner = new TestRunner(config.path, config.appFilter, config.testsPath, config.testFilter, config.requirePath, 
-                            config.jasminePath, config.scriptPaths, config.modulePaths, reportWriter, onComplete)
-    runner.run()
+if !config.run and !config.autorun and !config.createRunner
+    Config.printOptions()
+    phantom.exit()
+ 
+resultWriters = []
+if config.output.contains('xml') then resultWriters.push new XmlWriter(config.xmlOutputPath ? config.outputPath, config.xmlOutputFilename ? config.outputFilename)
+if config.output.contains('html') then resultWriters.push new HtmlWriter(config.htmlOutputPath ? config.outputPath, config.htmlOutputFilename ? config.outputFilename, 
+                                                                         config.autorun, config.autorunFrequency)
 
-if config.autotest
-    runTests = -> run (summary) -> window.setTimeout(runTests, config.autotestFrequency)
+runner = new TestRunner(config.path, config.appFilter, config.testsPath, config.testFilter, config.requirePath, 
+                        config.jasminePath, config.scriptPaths, config.modulePaths, resultWriters)
+
+config.printSummary()    
+                    
+if config.autorun
+    runTests = -> 
+        if config.createRunner then runner.save()
+        runner.run((summary) -> window.setTimeout(runTests, config.autorunFrequency))
     runTests()
-else run (summary) -> phantom.exit if summary.failed == 0 then 0 else 1
+else
+    if config.createRunner then runner.save()
+    if config.run then runner.run((summary) -> phantom.exit if summary.failed == 0 then 0 else 1)
+    else phantom.exit()
+
