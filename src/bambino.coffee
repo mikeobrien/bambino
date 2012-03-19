@@ -191,7 +191,7 @@ class Page
         @stopEventMonitor()
         fs = require 'fs'
         templatePath = Path.getAbsolutePath(Path.tempFilename('html'))
-        fs.write(templatePath, '<html><head></head><body></body></html>', 'w')
+        fs.write(templatePath, '<html><body></body></html>', 'w')
         runnerUrl = "file://#{templatePath.substr(2)}"
         @page.open runnerUrl, (status) =>
             fs.remove templatePath
@@ -282,7 +282,6 @@ class JasmineTestRunner extends Page
                     jasmineEnv.updateInterval = 1000
                     jasmineEnv.addReporter new JasmineReporter()
                     jasmineEnv.execute()
-            require('fs').write 'd:/temp/runner.html', @page.evaluate(-> document.documentElement.innerHTML), 'w'
 
 class TestRunner
     constructor: (basePath, @appFilter, testsPath, @testFilter, @requirePath, @jasminePath, @scriptPaths, @modulePaths, @resultWriters) ->
@@ -296,6 +295,7 @@ class TestRunner
         for path in paths
             app = { tests: {}, require: {}}
             app.path = Path.getDirectory(path)
+            app.relativePath = Path.getRelativePath(app.path)
             
             app.tests.path = Path.join(@testsPath, Path.getRelativePath(@basePath, app.path))
             testsPaths = Path.search(app.tests.path, @testFilter).map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x)))
@@ -314,7 +314,7 @@ class TestRunner
     
     save: ->
         console.log 'Creating test runners...'
-        apps = @findApps()
+        #apps = @findApps()
         
         console.log '----------------------------------------------------------------------------'
     
@@ -345,8 +345,8 @@ class TestRunner
             summary.suites = summary.suites.concat(suites)
             runner.close()
             @runNext(appQueue, summary, onComplete)
-            
-        @createJasmineRunner().run(app.path, app.require.paths, app.tests.paths.concat(app.modules), onNext)
+        
+        @createJasmineRunner().run(app.relativePath, app.require.paths, app.tests.paths.concat(app.modules), onNext)
 
     runComplete: (summary, onComplete) ->
         console.log '----------------------------------------------------------------------------'
