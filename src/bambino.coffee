@@ -106,8 +106,8 @@ class Config
                 else
                     switch name
                         when 'app-filter' then @appFilter = arg
-                        when 'tests-path' then @testsPath = arg
-                        when 'test-filter' then @testFilter = arg
+                        when 'specs-path' then @testsPath = arg
+                        when 'spec-filter' then @testFilter = arg
                         when 'require-path' then @requirePath = arg
                         when 'jasmine-path' then @jasminePath = arg
                         when 'output-path' then @outputPath = arg
@@ -132,7 +132,29 @@ class Config
         console.log '----------------------------------------------------------------------------'
         
     @printOptions: ->
-        console.log 'Options'
+        console.log 'Usage: bambino path/to/app/root [options]'
+        console.log ''
+        printOption = (option, description) -> console.log "  --#{option}#{' '.repeat(21 - option.length)}#{description}"
+        printOption 'run', 'run all tests'
+        printOption 'auto-run', 'auto run all tests'
+        printOption 'auto-run-frequency', 'frequency (seconds) to auto run tests'
+        printOption 'create-runner', 'generate stand alone test runner(s)'
+        printOption 'app-filter', 'app file pattern, defaults to "main.js"'
+        printOption 'specs-path', 'path that contains specs, defaults to app root'
+        printOption 'spec-filter', 'spec file pattern, defaults to "*.specs.js"'
+        printOption 'require-path', 'path to require.js files'
+        printOption 'jasmine-path', 'path to jasmine.js files'
+        printOption 'output-path', 'path for report output'
+        printOption 'xml-output-path', 'path for xml report output, defaults to output-path'
+        printOption 'html-output-path', 'path for html report output, defaults to output-path'
+        printOption 'output-filename', 'filename of report, defaults to "results"'
+        printOption 'xml-output-filename', 'filename of xml report, defaults to output-filename'
+        printOption 'html-output-filename', 'filename of html report, defaults to output-filename'
+        printOption 'output*', 'output type: xml, html'
+        printOption 'script-path*', 'path to a script'
+        printOption 'module-path*', 'path to a require.js module'
+        console.log ''
+        console.log '  * multiple allowed'
 
 class Page
     constructor: ->
@@ -186,7 +208,7 @@ class Page
         @page.release()
 
 class JasmineTestRunner extends Page
-    constructor: (@scripts, @onComplete) -> super()
+    constructor: (@scripts) -> super()
         
     handleEvent: (event) ->
         if event == null then return true
@@ -208,7 +230,8 @@ class JasmineTestRunner extends Page
     save: (baseUrl, paths, modules) -> 
         
         
-    run: (baseUrl, paths, modules) -> 
+    run: (baseUrl, paths, modules, onComplete) -> 
+        @onComplete = onComplete
         @load @scripts, =>
             @page.evaluate ->
                 define 'JasmineReporter', ->
@@ -266,61 +289,64 @@ class TestRunner
         @basePath = Path.getAbsolutePath basePath
         @testsPath = if !testsPath then @basePath else Path.getAbsolutePath testsPath
     
+    findApps: ->
+        console.log "Searching for #{@appFilter} under #{@basePath}..."
+        apps = []
+        paths = Path.search(@basePath, @appFilter).sort (a, b) -> b.length - a.length
+        for path in paths
+            app = { tests: {}, require: {}}
+            app.path = Path.getDirectory(path)
+            
+            app.tests.path = Path.join(@testsPath, Path.getRelativePath(@basePath, app.path))
+            testsPaths = Path.search(app.tests.path, @testFilter).map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x)))
+            app.tests.paths = Path.excludeDirectories(testsPaths, apps.map((x) => Path.getRelativePath(app.path, x.tests.path)))
+            
+            app.modules = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, Path.getAbsolutePath(x))))
+            
+            requirePaths = /paths\s*:\s*(\{\s*[\s\S]*?\s*\})/m.exec(require('fs').read(path))
+            app.require.paths = if requirePaths.length > 1 then JSON.parse(requirePaths[1]) else {} 
+            
+            apps.push app
+        apps
+
+    createJasmineRunner: ->
+        new JasmineTestRunner([Path.join(@requirePath, 'require.js'), Path.join(@jasminePath, 'jasmine.js')].concat(@scriptPaths))
+    
     save: ->
-        console.log 'Saving...'
+        console.log 'Creating test runners...'
+        apps = @findApps()
+        
         console.log '----------------------------------------------------------------------------'
     
     run: (onComplete) ->
-        summary = 
-            start: new Date()
-            suites: []
         console.log 'Starting test runner...'
-        console.log "Searching for #{@appFilter} under #{@basePath}..."
-        appQueue = Path.search(@basePath, @appFilter).sort (a, b) -> b.length - a.length
-        
+        summary = { start: new Date(), suites: [] }
+        appQueue = @findApps()
         if appQueue.length == 0 then @runComplete(summary, onComplete)
         else @runNext(appQueue, summary, onComplete)
         
     runNext: (appQueue, summary, onComplete) ->
         if appQueue.length == 0 then return @runComplete(summary, onComplete)
-        
-        appMain = appQueue.pop()
-        appPath = Path.getDirectory(appMain)
-        relativeAppPath = Path.getRelativePath(appPath)
+        app = appQueue.pop()
         
         console.log '----------------------------------------------------------------------------'
-        console.log "Finding tests for #{appMain}"
+        console.log "Running tests for #{app.path}"
         
-        getAbsoluteTestPath = (path) => Path.join(@testsPath, Path.getRelativePath(@basePath, path))
-        getRelativeTestPath = (path) => Path.getPathWithoutFileExt(Path.getRelativePath(appPath, path))
-        
-        appTestsPath = getAbsoluteTestPath(appPath)
-        
-        console.log "Looking for tests under #{appTestsPath}"
-        
-        appTestPaths = Path.search(appTestsPath, @testFilter).map((x) -> getRelativeTestPath(x))
-        appTestPaths = Path.excludeDirectories(appTestPaths, appQueue.map((x) => getRelativeTestPath(getAbsoluteTestPath(Path.getDirectory(x)))))
-        modulePaths = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(appPath, Path.getAbsolutePath(x))))
-        
-        if appTestPaths.length == 0
+        if app.tests.paths.length == 0
             console.log "No tests found."
             return @runNext(appQueue, summary, onComplete)
         
-        console.log("Found test suite #{suite}") for suite in appTestPaths
-        
-        requirePaths = /paths\s*:\s*(\{\s*[\s\S]*?\s*\})/m.exec(require('fs').read(appMain))
-        requirePaths = if requirePaths.length > 1 then JSON.parse(requirePaths[1]) else {}
+        console.log("Found test suite #{suite}") for suite in app.tests.paths
 
         onNext = (runner, suites) =>
             suites = suites.slice()
-            suitePath = Path.getRelativePath(appTestsPath) || '/'
+            suitePath = Path.getRelativePath(app.tests.path) || '/'
             suites.forEach((x) => x.path = suitePath)
             summary.suites = summary.suites.concat(suites)
             runner.close()
             @runNext(appQueue, summary, onComplete)
             
-        runner = new JasmineTestRunner([@requirePath, @jasminePath].concat(@scriptPaths), onNext)
-        runner.run(relativeAppPath, requirePaths, appTestPaths.concat(modulePaths))
+        @createJasmineRunner().run(app.path, app.require.paths, app.tests.paths.concat(app.modules), onNext)
 
     runComplete: (summary, onComplete) ->
         console.log '----------------------------------------------------------------------------'
