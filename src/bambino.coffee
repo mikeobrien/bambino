@@ -47,7 +47,7 @@ class Path
         @normalizeDirectory path
     @excludeDirectories: (paths, exclusions) ->
         paths.filter((path) -> !exclusions.some((directory) -> path.startsWith("#{directory}/")))
-    @getAbsolutePath: (path) -> if path.match(/^\w:[\\/]/) then path else @join(require('fs').workingDirectory, path)
+    @getAbsolutePath: (path) -> require('fs').absolute(path)
     @getRelativePath: (root, path) ->
         if !path 
             path = root
@@ -84,7 +84,7 @@ class Config
         @runnerFilename = 'SpecRunner.html'
         @path = fs.workingDirectory
         @appFilter = 'main.js'
-        @testFilter = '*.spec.js'
+        @testFilter = '*.specs.js'
         @requirePath = 'require.js'
         @jasminePath = 'jasmine.js'
         @outputPath = fs.workingDirectory
@@ -96,8 +96,8 @@ class Config
         for arg in args
             if arg.startsWith '--' 
                 switch arg
-                    when '--auto-run' then @autorun = true
                     when '--run' then @run = true
+                    when '--auto-run' then @autorun = true
                     when '--create-runner' then @createRunner = true
                     else name = arg.substr(2)
             else
@@ -137,7 +137,7 @@ class Config
         printOption = (option, description) -> console.log "  --#{option}#{' '.repeat(22 - option.length)}#{description}"
         printOption 'run', 'run all tests'
         printOption 'auto-run', 'auto run all tests'
-        printOption 'auto-run-frequency', 'frequency (seconds) to auto run tests'
+        printOption 'auto-run-frequency', 'frequency (seconds) to auto run tests, defaults to 2'
         printOption 'create-runner', 'generate standalone test runner(s)'
         printOption 'runner-filename', 'runner name, defaults to "SpecRunner.html"'
         printOption 'app-filter', 'app file pattern, defaults to "main.js"'
