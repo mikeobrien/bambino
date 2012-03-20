@@ -2,9 +2,9 @@ window.error = (message) ->
     console.log message
     phantom.exit 1
     
-#window.onerror = (message) ->
-#    console.log message
-#    phantom.exit 1
+window.onerror = (message) ->
+    console.log message
+    phantom.exit 1
 
 Array.prototype.contains = (item) -> @.indexOf(item) > -1
 Date.prototype.elapsed = -> (new Date() - @) / 1000;
