@@ -323,6 +323,10 @@ class TestRunner
         apps = []
         paths = Path.search(@basePath, @appFilter).sort (a, b) -> b.length - a.length
         for path in paths
+            mainjs = require('fs').read(path)
+            
+            if !mainjs.match(/require(.*)/m) then continue
+            
             app = { tests: {}, require: {}}
             app.path = Path.getDirectory(path)
             
@@ -332,7 +336,7 @@ class TestRunner
             
             app.modules = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x)))
             
-            requirePaths = /paths\s*:\s*(\{\s*[\s\S]*?\s*\})/m.exec(require('fs').read(path))
+            requirePaths = /paths\s*:\s*(\{\s*[\s\S]*?\s*\})/m.exec(mainjs)
             app.require.paths = if requirePaths.length > 1 then JSON.parse(requirePaths[1]) else {} 
             
             apps.push app
