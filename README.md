@@ -6,7 +6,7 @@ the skinny:
 
 * can autodiscover require.js single page apps and their corresponding tests
 * can read require.js path configuration
-* can run tests in seperate folder structure
+* can run tests in [seperate](tree/master/example/seperate) or [combined](tree/master/example/combined) folder structure
 * can save test results as junit xml or html (a la jasmine test runner)
 * can generate stand alone test runners
 * has autotest mode
@@ -33,9 +33,9 @@ the skinny:
 * **--output-filename**: filename of report, defaults to "results"
 * **--xml-output-filename**: filename of xml report, defaults to output-filename
 * **--html-output-filename**: filename of html report, defaults to output-filename
-* **--output***: output type, multiple allowed: xml, html, teamcity
-* **--script-path***: path to a script, multiple allowed
-* **--module-path***: path to a require.js module, multiple allowed
+* **--output**: output type, multiple allowed: xml, html, teamcity
+* **--script-path**: path to a script, multiple allowed
+* **--module-path**: path to a require.js module, multiple allowed
 
 ## rake task refference
 
@@ -73,17 +73,17 @@ the skinny:
 * **spec_filter**: spec file pattern, defaults to "*.specs.js"
 * **require_path**: path to require.js files, do not include the filename
 * **jasmine_path**: path to jasmine.js files, do not include the filename
-* **xml_output**: 
-* **html_output**: 
-* **teamcity_output**: 
+* **xml_output**: create xml report
+* **html_output**: create html report
+* **teamcity_output**: output teamcity commands
 * **output_path**: path for report output
 * **xml_output_path**: path for xml report output, defaults to output-path
 * **html_output_path**: path for html report output, defaults to output-path
 * **output_filename**: filename of report, defaults to "results"
 * **xml_output_filename**: filename of xml report, defaults to output-filename
 * **html_output_filename**: filename of html report, defaults to output-filename
-* **add_script_paths(*paths)**: path to a script
-* **add_module_paths(*paths)**: path to a require.js module
+* **add_script_paths(*paths)**: paths to scripts
+* **add_module_paths(*paths)**: paths to a require.js modules
 
 
 
