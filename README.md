@@ -15,7 +15,7 @@ the skinny:
 
 ## command line reference
 
-    phantomjs.exe bambino path/to/app/root [options]
+    phantomjs.exe bambino path/to/app(s)/root [options]
     
 * **--run**: run all tests
 * **--auto-run**: auto run all tests
