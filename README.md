@@ -6,7 +6,7 @@ the skinny:
 
 * can autodiscover require.js single page apps and their corresponding tests
 * can read require.js path configuration
-* can run tests in [seperate](tree/master/example/seperate) or [combined](tree/master/example/combined) folder structure
+* can run tests in [seperate](bambino/tree/master/example/seperate) or [combined](bambino/tree/master/example/combined) folder structure
 * can save test results as junit xml or html (a la jasmine test runner)
 * can generate stand alone test runners
 * has autotest mode
