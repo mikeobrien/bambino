@@ -1,9 +1,14 @@
+#     bambino 1.0.0
+#     (c) 2012 Mike O'Brien
+#     May be freely distributed under the MIT license.
+#     https://github.com/mikeobrien/bambino
+
 window.error = (message) ->
     console.log message
     phantom.exit 1
     
-window.onerror = (message, source, line) ->
-    console.log "A Bambino error occured at #{event.error.source}:#{event.error.line}: #{event.error.message}"
+window.onerror = (message) ->
+    console.log message
     phantom.exit 1
 
 Array.prototype.contains = (item) -> @.indexOf(item) > -1
@@ -92,6 +97,7 @@ class Config
         @output = []
         @scriptPaths = []
         @modulePaths = []
+        @modules = []
         name = null
         for arg in args
             if arg.startsWith '--' 
@@ -119,6 +125,7 @@ class Config
                         when 'output' then @output.push arg
                         when 'script-path' then @scriptPaths.push arg
                         when 'module-path' then @modulePaths.push arg
+                        when 'module' then @modules.push arg
                         when 'auto-run-frequency' then @autorunFrequency = parseInt(arg) * 1000
                         else continue
                 name = null
@@ -154,6 +161,7 @@ class Config
         printOption 'output*', 'output type: xml, html, teamcity'
         printOption 'script-path*', 'path to a script'
         printOption 'module-path*', 'path to a require.js module'
+        printOption 'module*', 'require.js modules to load'
         console.log ''
         console.log '  * multiple allowed'
 
@@ -214,7 +222,7 @@ class JasmineTestRunner extends Page
     handleEvent: (event) ->
         if event == null then return true
         if event.error
-            console.log "A Jasmine reporter error occured at #{event.error.source}:#{event.error.line}: #{event.error.message}"
+            console.log "An error occured at #{event.error.source}:#{event.error.line}: #{event.error.message}"
             phantom.exit 1
         if event.message then console.log event.message.message
         if event.jasmine
@@ -259,7 +267,7 @@ class JasmineTestRunner extends Page
         """
         require('fs').write Path.join(testsPath, runnerFilename), runner, 'w'
         
-    run: (appPath, scripts, requirePaths, modules, onComplete) -> 
+    run: (scripts, requireConfig, modules, onComplete) -> 
         @onComplete = onComplete
         @load scripts, =>
             @page.evaluate ->
@@ -287,7 +295,6 @@ class JasmineTestRunner extends Page
 
                         reportSuiteResults: (suite) ->
                             specs = suite.specs()
-                            suite.summary = suite.summary ? { start: new Date() }
                             suite.summary.name = suite.getFullName()
                             suite.summary.end = new Date()
                             suite.summary.duration = @elapsed(suite.summary.start, new Date())
@@ -298,13 +305,10 @@ class JasmineTestRunner extends Page
                         reportRunnerResults: (runner) ->
                             window.events.push { jasmine: { summary: runner.suites().map((x) -> x.summary) }}
                             
-            @apply [appPath, requirePaths, modules], (appPath, requirePaths, modules) -> 
+            @apply [requireConfig, modules], (requireConfig, modules) -> 
                 console.log 'Starting Jasmine test runner...'
                 
-                require.config
-                    baseUrl: appPath
-                    paths: requirePaths
-                    urlArgs: "x=" + (new Date()).getTime()
+                require.config requireConfig
 
                 require ['JasmineReporter'].concat(modules), (JasmineReporter) ->
                     console.log 'Running Jasmine tests...'
@@ -314,7 +318,7 @@ class JasmineTestRunner extends Page
                     jasmineEnv.execute()
 
 class TestRunner
-    constructor: (basePath, @appFilter, testsPath, @testFilter, @requirePath, @jasminePath, @scriptPaths, @modulePaths, @resultWriters) ->
+    constructor: (basePath, @appFilter, testsPath, @testFilter, @requirePath, @jasminePath, @scriptPaths, @modules, @modulePaths, @resultWriters) ->
         @basePath = Path.getAbsolutePath basePath
         @testsPath = if !testsPath then @basePath else Path.getAbsolutePath testsPath
         @scripts = [Path.join(@requirePath, 'require.js'), Path.join(@jasminePath, 'jasmine.js')].concat(@scriptPaths)
@@ -328,17 +332,21 @@ class TestRunner
             
             if !mainjs.match(/require(.*)/m) then continue
             
-            app = { tests: {}, require: {}}
+            app = { tests: {}}
             app.path = Path.getDirectory(path)
             
             app.tests.path = Path.join(@testsPath, Path.getRelativePath(@basePath, app.path))
             testsPaths = Path.search(app.tests.path, @testFilter).map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x)))
             app.tests.paths = Path.excludeDirectories(testsPaths, apps.map((x) => Path.getRelativePath(app.path, x.tests.path)))
             
-            app.modules = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x)))
+            app.modules = @modulePaths.map((x) -> Path.getPathWithoutFileExt(Path.getRelativePath(app.path, x))) ? []
+            app.modules = app.modules.concat @modules
             
-            requirePaths = /paths\s*:\s*(\{\s*[\s\S]*?\s*\})/m.exec(mainjs)
-            app.require.paths = if requirePaths.length > 1 then JSON.parse(requirePaths[1]) else {} 
+            requireConfig = /require\.config\s*\(\s*([\s\S]*?)\s*\)/m.exec(mainjs)
+            app.require = if requireConfig.length > 1 then eval('(' + requireConfig[1] + ')') else {} 
+            app.require.paths = app.require.paths ? {}
+            app.require.baseUrl = Path.getRelativePath(app.path)
+            app.require.urlArgs = "x=" + (new Date()).getTime()
             
             apps.push app
         apps
@@ -381,8 +389,7 @@ class TestRunner
             runner.close()
             @runNext(appQueue, summary, onComplete)
         
-        appPath = Path.getRelativePath(app.path)
-        new JasmineTestRunner().run(appPath, @scripts, app.require.paths, app.tests.paths.concat(app.modules), onNext)
+        new JasmineTestRunner().run(@scripts, app.require, app.tests.paths.concat(app.modules), onNext)
 
     runComplete: (summary, onComplete) ->
         console.log '----------------------------------------------------------------------------'
@@ -546,7 +553,7 @@ if config.output.contains('html')
 if config.output.contains('teamcity') then resultWriters.push new TeamCityWriter()
 
 runner = new TestRunner(config.path, config.appFilter, config.testsPath, config.testFilter, config.requirePath, 
-                        config.jasminePath, config.scriptPaths, config.modulePaths, resultWriters)
+                        config.jasminePath, config.scriptPaths, config.modules, config.modulePaths, resultWriters)
 
 config.printSummary()    
                     
