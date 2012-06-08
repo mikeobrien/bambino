@@ -1,3 +1,8 @@
+#     bambino rake task 1.0.0
+#     (c) 2012 Mike O'Brien
+#     May be freely distributed under the MIT license.
+#     https://github.com/mikeobrien/bambino
+
 require "fileutils"
 
 def bambino(*args, &block)
@@ -17,11 +22,12 @@ class Bambino
     attr_accessor :phantom_path, :bambino_path, :path, :create_runner, :runner_filename, :app_filter, 
                   :specs_path, :spec_filter, :require_path, :jasmine_path, :xml_output, :html_output, 
                   :teamcity_output, :output_path, :xml_output_path, :html_output_path, :output_filename, 
-                  :xml_output_filename, :html_output_filename, :script_paths, :module_paths
+                  :xml_output_filename, :html_output_filename, :script_paths, :modules, :module_paths
     
     def initialize()
         @script_paths = []
         @module_paths = []
+        @modules = []
     end
     
     def add_script_paths(*paths)
@@ -30,6 +36,10 @@ class Bambino
     
     def add_module_paths(*paths)
         @module_paths.concat paths
+    end
+    
+    def load_modules(*paths)
+        @modules.concat paths
     end
     
     def run()
@@ -56,6 +66,7 @@ class Bambino
         if @xml_output_filename then command << '--xml-output-filename' << @xml_output_filename end
         if @html_output_filename then command << '--html-output-filename' << @html_output_filename end
         if @script_paths.length > 0 then @script_paths.each{|script| command << "--script-path" << "\"#{script}\""} end
+        if @modules.length > 0 then @modules.each{|mod| command << "--module" << mod} end
         if @module_paths.length > 0 then @module_paths.each{|mod| command << "--module-path" << mod} end
         
         command = command.join(" ")
